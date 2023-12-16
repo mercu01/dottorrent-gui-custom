@@ -78,7 +78,7 @@
            </sizepolicy>
           </property>
           <property name="title">
-           <string>Input path</string>
+           <string>Input path v1.2</string>
           </property>
           <layout class="QGridLayout" name="gridLayout">
            <item row="0" column="0">
@@ -100,7 +100,7 @@
               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If enabled, a torrent will be created for each directory and file one level below the input directory. The piece size for each torrent will be determined automatically.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
              </property>
              <property name="text">
-              <string>Batch mode</string>
+              <string>Multiples Seasons</string>
              </property>
             </widget>
            </item>
@@ -375,7 +375,7 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>Comment</string>
+              <string>NOMBRE ESPANYOL</string>
              </property>
             </widget>
            </item>

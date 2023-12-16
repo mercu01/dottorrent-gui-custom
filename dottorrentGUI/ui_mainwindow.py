@@ -271,10 +271,10 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
-        self.inputGroupBox.setTitle(_translate("MainWindow", "Input path"))
+        self.inputGroupBox.setTitle(_translate("MainWindow", "Input path v1.2"))
         self.fileRadioButton.setText(_translate("MainWindow", "File"))
         self.batchModeCheckBox.setToolTip(_translate("MainWindow", "<html><head/><body><p>If enabled, a torrent will be created for each directory and file one level below the input directory. The piece size for each torrent will be determined automatically.</p></body></html>"))
-        self.batchModeCheckBox.setText(_translate("MainWindow", "Batch mode"))
+        self.batchModeCheckBox.setText(_translate("MainWindow", "Multiples Seasons"))
         self.excludeLabel.setText(_translate("MainWindow", "Filename exclusion patterns (one per line)"))
         self.browseButton.setText(_translate("MainWindow", "Browse..."))
         self.pasteButton.setText(_translate("MainWindow", "Paste from clipboard"))
@@ -289,7 +289,7 @@ class Ui_MainWindow(object):
         self.pieceSizeLabel.setText(_translate("MainWindow", "Piece size"))
         self.privateTorrentCheckBox.setToolTip(_translate("MainWindow", "<html><head/><body><p>If enabled, clients will not use DHT or Peer Exchange to discover peers or transfer data. Make sure to enable this option for private trackers.</p></body></html>"))
         self.privateTorrentCheckBox.setText(_translate("MainWindow", "Private torrent"))
-        self.commentLabel.setText(_translate("MainWindow", "Comment"))
+        self.commentLabel.setText(_translate("MainWindow", "NOMBRE ESPAÑOL"))
         self.sourceLabel.setText(_translate("MainWindow", "Source"))
         self.sourceEdit.setToolTip(_translate("MainWindow", "<html><head/><body><p>An optional source string that wil be added to the info dictionary. Useful for creating torrents with unique info hashes for private trackers.</p></body></html>"))
         self.createButton.setText(_translate("MainWindow", "Create..."))

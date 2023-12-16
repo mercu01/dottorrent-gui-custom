@@ -1,0 +1,8 @@
+cd /media/mercu/myUsbRAID/dottorrent-gui && python setup.py build && pip install .
+
+
+media/mercu/myUsb14T/Series/aaaa nombre serie/Season 1/A Small Light - S01E05 - Scheißfeld - WEBDL-1080p - Spanish 1x05 - audio [ES+EN] - sub [ES+EN].mkv
+media/mercu/myUsb14T/Series/aaaa nombre serie/Season 1/A Small Light - S01E05 - Scheißfeld - WEBDL-1080p - Spanish 1x05 - audio [ES+EN] - sub [ES+EN].mkv
+
+/media/mercu/myUsb14T/symlinks
+'/media/mercu/myUsb14T/symlinks/nombre castellano S01 - Temporada 1 [WEBDL-1080p][Castellano] aaaa nombre serie Season 1 - Spanish/A Small Light - S01E05 - Scheißfeld - WEBDL-1080p - Spanish 1x05 - audio [ES+EN] - sub [ES+EN].mkv'

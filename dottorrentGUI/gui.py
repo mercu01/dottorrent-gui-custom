@@ -2,12 +2,24 @@
 
 import json
 import os
+import re
 import sys
-from datetime import datetime
-from fnmatch import fnmatch
-
+import fnmatch
 import dottorrent
+import math
+from base64 import b32encode
+from collections import OrderedDict
+from datetime import datetime
+from hashlib import sha1, md5
+from urllib.parse import urlparse
+from pathlib import Path
+from typing import Union
+
+from bencoder import bencode
+
+
 import humanfriendly
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from dottorrentGUI import Ui_AboutDialog, Ui_MainWindow, __version__
@@ -15,8 +27,7 @@ from dottorrentGUI import Ui_AboutDialog, Ui_MainWindow, __version__
 
 PROGRAM_NAME = "dottorrent-gui"
 PROGRAM_NAME_VERSION = "{} {}".format(PROGRAM_NAME, __version__)
-CREATOR = "dottorrent-gui/{} (https://github.com/kz26/dottorrent-gui)".format(
-    __version__)
+CREATOR = "mercu"
 
 PIECE_SIZES = [None] + [2 ** i for i in range(14, 27)]
 
@@ -31,26 +42,61 @@ class CreateTorrentQThread(QtCore.QThread):
     progress_update = QtCore.pyqtSignal(str, int, int)
     onError = QtCore.pyqtSignal(str)
 
-    def __init__(self, torrent, save_path):
+    def __init__(self, torrent, save_path, path):
         super().__init__()
         self.torrent = torrent
         self.save_path = save_path
+        self.path = path
 
     def run(self):
         def progress_callback(*args):
             self.progress_update.emit(*args)
             return self.isInterruptionRequested()
-
-        self.torrent.creation_date = datetime.now()
-        self.torrent.created_by = CREATOR
-        try:
-            self.success = self.torrent.generate(callback=progress_callback)
-        except Exception as exc:
-            self.onError.emit(str(exc))
-            return
-        if self.success:
-            with open(self.save_path, 'wb') as f:
-                self.torrent.save(f)
+        def callback(*args):
+            return self.isInterruptionRequested()
+        for i, p in enumerate(self.path.split(";")):
+            if (p!=''):
+                name_parent=os.path.basename(os.path.normpath(p))
+                titulo=name_parent
+                
+                ruta_sin_nombre = os.path.dirname(self.save_path)
+                ruta_completa = os.path.join(ruta_sin_nombre, titulo+".torrent")
+            
+                self.torrent.name=titulo
+                self.progress_update.emit(titulo+".torrent", i, self.path.split(";"))
+                # try:
+                #     self.success = self.torrent.generate(callback=progress_callback)
+                # except Exception as exc:
+                #     self.onError.emit(str(exc))
+                #     return
+                # if self.success:
+                #     with open(self.save_path, 'wb') as f:
+                #         self.torrent.save(f)
+                t = Torrent(
+                        titulo+".torrent",
+                        p,
+                        trackers=self.torrent.trackers,
+                        web_seeds=self.torrent.web_seeds,
+                        private=self.torrent.private,
+                        source=self.torrent.source,
+                        comment=titulo,
+                        include_md5=self.torrent.include_md5,
+                        creation_date=datetime.now(),
+                        created_by=CREATOR
+                    )
+                try:
+                    self.success = t.generate(callback=callback)
+                # ignore empty inputs
+                except EmptyInputException:
+                    continue
+                except Exception as exc:
+                    self.onError.emit(str(exc))
+                    return
+                if self.isInterruptionRequested():
+                    return
+                if self.success:
+                    with open(ruta_completa, 'wb') as f:
+                        t.save(f)
 
 
 class CreateTorrentBatchQThread(QtCore.QThread):
@@ -59,7 +105,7 @@ class CreateTorrentBatchQThread(QtCore.QThread):
     onError = QtCore.pyqtSignal(str)
 
     def __init__(self, path, exclude, save_dir, trackers, web_seeds,
-                 private, source, comment, include_md5):
+                 private, source, comment, include_md5, batchModeCheckBox):
         super().__init__()
         self.path = path
         self.exclude = exclude
@@ -70,45 +116,491 @@ class CreateTorrentBatchQThread(QtCore.QThread):
         self.source = source
         self.comment = comment
         self.include_md5 = include_md5
+        self.batchModeCheckBox = batchModeCheckBox
 
     def run(self):
         def callback(*args):
             return self.isInterruptionRequested()
+        for parent_i, parent_p in enumerate(self.path.split(";")):
+            if (parent_p!=''):
+                if(self.batchModeCheckBox):
+                    entries = os.listdir(parent_p)
+                else:
+                    entries=[]
+                    entries.append(parent_p)
+                    parte_principal, ultimo_directorio = os.path.split(parent_p)
+                    parent_p=parte_principal
+                name_parent=os.path.basename(os.path.normpath(parent_p));
+                for i, p in enumerate(entries):
+                    if any(fnmatch.fnmatch(p, ex) for ex in self.exclude):
+                        continue
+                    p = os.path.join(parent_p, p)
+                    if not is_hidden_file(p):
+                        numero = re.findall(r'\d+', os.path.split(p)[1])[0]
+                        numero_formateado = numero.zfill(2)
+                        # archivo1 = os.listdir(p)[0]
+                        # if "WEBDL-1080p" in archivo1:
+                        #     archivo1_calidad= "WEBDL-1080p"
+                        # elif  "HDTV-720p" in archivo1:
+                        #     archivo1_calidad= "HDTV-720p"
+                        # elif  "WEBDL-720p" in archivo1:
+                        #     archivo1_calidad= "WEBDL-720p"
+                        # elif  "Bluray-720p" in archivo1:
+                        #     archivo1_calidad= "Bluray-720p"
+                        # elif  "Bluray-1080p" in archivo1:
+                        #     archivo1_calidad= "Bluray-1080p"
+                        # elif  "WEBDL-480p" in archivo1:
+                        #     archivo1_calidad= "WEBDL-480p"
+                        # elif  "HDTV-1080p" in archivo1:
+                        #     archivo1_calidad= "HDTV-1080p"
+                        # elif  "Raw-HD" in archivo1:
+                        #     archivo1_calidad= "Raw-HD"
+                        # elif  "WEBRip-480p" in archivo1:
+                        #     archivo1_calidad= "WEBRip-480p"
+                        # elif  "Bluray-480p" in archivo1:
+                        #     archivo1_calidad= "Bluray-480p"
+                        # elif  "WEBRip-720p" in archivo1:
+                        #     archivo1_calidad= "WEBRip-720p"
+                        # elif  "WEBRip-1080p" in archivo1:
+                        #     archivo1_calidad= "WEBRip-1080p"
+                        # elif  "HDTV-2160p" in archivo1:
+                        #     archivo1_calidad= "HDTV-2160p"
+                        # elif  "WEBRip-2160p" in archivo1:
+                        #     archivo1_calidad= "WEBRip-2160p"
+                        # elif  "WEBDL-2160p" in archivo1:
+                        #     archivo1_calidad= "WEBDL-2160p"
+                        # elif  "Bluray-2160p" in archivo1:
+                        #     archivo1_calidad= "Bluray-2160p"
+                        # elif  "Bluray-1080p Remux" in archivo1:
+                        #     archivo1_calidad= "Bluray-1080p Remux"
+                        # elif  "Bluray-2160p Remux" in archivo1:
+                        #     archivo1_calidad= "Bluray-2160p Remux"
+                        # elif  "SDTV" in archivo1:
+                        #     archivo1_calidad= "SDTV"
+                        # elif  "DVD" in archivo1:
+                        #     archivo1_calidad= "DVD"
+                        # else:
+                        #     archivo1_calidad= "Unknown"
+                        prioridades = [
+                            ("SDTV", 10),
+                            ("DVD", 20),
+                            ("HDTV-720p", 30),
+                            ("WEBDL-720p", 40),
+                            ("Bluray-720p", 50),
+                            ("Bluray-1080p", 60),
+                            ("WEBDL-480p", 70),
+                            ("HDTV-1080p", 80),
+                            ("Raw-HD", 90),
+                            ("WEBRip-480p", 100),
+                            ("Bluray-480p",110),
+                            ("WEBRip-720p", 120),
+                            ("WEBRip-1080p", 120),
+                            ("WEBDL-1080p", 140),
+                            ("HDTV-2160p", 150),
+                            ("WEBRip-2160p", 160),
+                            ("WEBDL-2160p", 170),
+                            ("Bluray-2160p", 180),
+                            ("Bluray-1080p Remux", 190),
+                            ("Bluray-2160p Remux", 200),
+                        ]
+                        calidad_prioridad = -1
+                        archivo_calidad = "Unknown"
+                        for archivo in os.listdir(p):
+                            for calidad, prioridad in prioridades:
+                                if calidad in archivo and prioridad > calidad_prioridad:
+                                    archivo_calidad = calidad
+                                    calidad_prioridad = prioridad
+                            
+                        if self.comment!="":
+                            titulo=self.comment
+                        else:
+                            titulo=name_parent
+                        sfn = titulo + ' S' + numero_formateado + ' - Temporada ' + numero + ' ['+archivo_calidad+'][Castellano] ' + name_parent + ' - Spanish' + '.torrent'
+                        nameFolder = titulo + ' S' + numero_formateado + ' - Temporada ' + numero + ' ['+archivo_calidad+'][Castellano] ' + name_parent  + ' Season ' + numero + ' - Spanish' 
+                        
+                        destinoAccesoDirecto="/media/mercu/myUsb14T/symlinks"
+                        # Create symlink - FOLDER
+                        if not os.path.exists(destinoAccesoDirecto + '/' +  nameFolder):
+                            relative_symlink(p, destinoAccesoDirecto + '/' +  nameFolder)
 
-        entries = os.listdir(self.path)
-        for i, p in enumerate(entries):
-            if any(fnmatch(p, ex) for ex in self.exclude):
-                continue
-            p = os.path.join(self.path, p)
-            if not dottorrent.is_hidden_file(p):
-                sfn = os.path.split(p)[1] + '.torrent'
-                self.progress_update.emit(sfn, i, len(entries))
-                t = dottorrent.Torrent(
-                    p,
-                    exclude=self.exclude,
-                    trackers=self.trackers,
-                    web_seeds=self.web_seeds,
-                    private=self.private,
-                    source=self.source,
-                    comment=self.comment,
-                    include_md5=self.include_md5,
-                    creation_date=datetime.now(),
-                    created_by=CREATOR
-                )
-                try:
-                    self.success = t.generate(callback=callback)
-                # ignore empty inputs
-                except dottorrent.exceptions.EmptyInputException:
-                    continue
-                except Exception as exc:
-                    self.onError.emit(str(exc))
-                    return
-                if self.isInterruptionRequested():
-                    return
-                if self.success:
-                    with open(os.path.join(self.save_dir, sfn), 'wb') as f:
-                        t.save(f)
+                        self.progress_update.emit(sfn, i, len(entries))
+                        t = Torrent(
+                            nameFolder,
+                            p,
+                            exclude=self.exclude,
+                            trackers=self.trackers,
+                            web_seeds=self.web_seeds,
+                            private=self.private,
+                            source=self.source,
+                            comment=nameFolder,
+                            include_md5=self.include_md5,
+                            creation_date=datetime.now(),
+                            created_by=CREATOR
+                        )
+                        try:
+                            self.success = t.generate(callback=callback)
+                        # ignore empty inputs
+                        except EmptyInputException:
+                            continue
+                        except Exception as exc:
+                            self.onError.emit(str(exc))
+                            return
+                        if self.isInterruptionRequested():
+                            return
+                        if self.success:
+                            with open(os.path.join(self.save_dir, sfn), 'wb') as f:
+                                t.save(f)
+class EmptyInputException(Exception):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__('Input path must be non-empty')
+
+MIN_PIECE_SIZE = 2 ** 14
+MAX_PIECE_SIZE = 2 ** 26
+if sys.version_info >= (3, 5) and os.name == 'nt':
+    import stat
+
+    def is_hidden_file(path):
+        fn = path.split(os.sep)[-1]
+        return fn.startswith('.') or \
+            bool(os.stat(path).st_file_attributes &
+                 stat.FILE_ATTRIBUTE_HIDDEN)
+else:
+    def is_hidden_file(path):
+        fn = path.split(os.sep)[-1]
+        return fn.startswith('.')
+
+def relative_symlink(target: Union[Path, str], destination: Union[Path, str]):
+    """Create a symlink pointing to ``target`` from ``location``.
+    Args:
+        target: The target of the symlink (the file/directory that is pointed to)
+        destination: The location of the symlink itself.
+    """
+    target = Path(target)
+    destination = Path(destination)
+    target_dir = destination.parent
+    target_dir.mkdir(exist_ok=True, parents=True)
+    relative_source = os.path.relpath(target, target_dir)
+    dir_fd = os.open(str(target_dir.absolute()), os.O_RDONLY)
+    print(f"{relative_source} -> {destination.name} in {target_dir}")
+    try:
+        os.symlink(relative_source, destination.name, dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+def print_err(v):
+    print(v, file=sys.stderr)
+
+class Torrent(object):
+
+    def __init__(self, name, path, trackers=None, web_seeds=None,
+                 piece_size=None, private=False, source=None,
+                 creation_date=None, comment=None, created_by=None,
+                 include_md5=False, exclude=None):
+        """
+        :param name: name torrent
+        :param path: path to a file or directory from which to create the torrent
+        :param trackers: list/iterable of tracker URLs
+        :param web_seeds: list/iterable of HTTP/FTP seed URLs
+        :param piece_size: Piece size in bytes. Must be >= 16 KB and a power of 2.
+            If None, ``get_info()`` will be used to automatically select a piece size.
+        :param private: The private flag. If True, DHT/PEX will be disabled.
+        :param source: An optional source string for the torrent.
+        :param exclude: A list of filename patterns that should be excluded from the torrent.
+        :param creation_date: An optional datetime object representing the torrent creation date.
+        :param comment: An optional comment string for the torrent.
+        :param created_by: name/version of the program used to create the .torrent.
+            If None, defaults to the value of ``DEFAULT_CREATOR``.
+        :param include_md5: If True, also computes and stores MD5 hashes for each file.
+        """
+        self.name = name
+        self.path = os.path.normpath(path)
+        self.trackers = trackers
+        self.web_seeds = web_seeds
+        self.piece_size = piece_size
+        self.private = private
+        self.source = source
+        self.exclude = [] if exclude is None else exclude
+        self.creation_date = creation_date
+        self.comment = comment
+        self.created_by = created_by
+        self.include_md5 = include_md5
+
+        self._data = None
+
+    @property
+    def trackers(self):
+        return self._trackers
+
+    @trackers.setter
+    def trackers(self, value):
+        tl = []
+        if value:
+            for t in value:
+                pr = urlparse(t)
+                if pr.scheme and pr.netloc:
+                    tl.append(t)
+                else:
+                    raise exceptions.InvalidURLException(t)
+        self._trackers = tl
+
+    @property
+    def web_seeds(self):
+        return self._web_seeds
+
+    @web_seeds.setter
+    def web_seeds(self, value):
+        tl = []
+        if value:
+            for t in value:
+                pr = urlparse(t)
+                if pr.scheme and pr.netloc:
+                    tl.append(t)
+                else:
+                    raise exceptions.InvalidURLException(t)
+        self._web_seeds = tl
+
+    @property
+    def piece_size(self):
+        return self._piece_size
+
+    @piece_size.setter
+    def piece_size(self, value):
+        if value:
+            value = int(value)
+            if value > 0 and (value & (value-1) == 0):
+                if value < MIN_PIECE_SIZE:
+                    raise exceptions.InvalidPieceSizeException(
+                        "Piece size should be at least 16 KiB")
+                if value > MAX_PIECE_SIZE:
+                    print_err("Warning: piece size is greater than 64 MiB")
+                self._piece_size = value
+            else:
+                raise exceptions.InvalidPieceSizeException(
+                    "Piece size must be a power of 2 bytes")
+        else:
+            self._piece_size = None
+
+    def get_info(self):
+        """
+        Scans the input path and automatically determines the optimal
+        piece size based on ~1500 pieces (up to MAX_PIECE_SIZE) along
+        with other basic info, including total size (in bytes), the
+        total number of files, piece size (in bytes), and resulting
+        number of pieces. If ``piece_size`` has already been set, the
+        custom value will be used instead.
+
+        :return: ``(total_size, total_files, piece_size, num_pieces)``
+        """
+        if os.path.isfile(self.path):
+            total_size = os.path.getsize(self.path)
+            total_files = 1
+        elif os.path.exists(self.path):
+            total_size = 0
+            total_files = 0
+            for x in os.walk(self.path):
+                for fn in x[2]:
+                    if any(fnmatch.fnmatch(fn, ext) for ext in self.exclude):
+                        continue
+                    fpath = os.path.normpath(os.path.join(x[0], fn))
+                    fsize = os.path.getsize(fpath)
+                    if fsize and not is_hidden_file(fpath):
+                        total_size += fsize
+                        total_files += 1
+        else:
+            raise exceptions.InvalidInputException
+        if not (total_files and total_size):
+            raise exceptions.EmptyInputException
+        if self.piece_size:
+            ps = self.piece_size
+        else:
+            ps = 1 << max(0, math.ceil(math.log(total_size / 1500, 2)))
+            if ps < MIN_PIECE_SIZE:
+                ps = MIN_PIECE_SIZE
+            if ps > MAX_PIECE_SIZE:
+                ps = MAX_PIECE_SIZE
+        return (total_size, total_files, ps, math.ceil(total_size / ps))
+
+    def generate(self, callback=None):
+        """
+        Computes and stores piece data. Returns ``True`` on success, ``False``
+        otherwise.
+
+        :param callback: progress/cancellation callable with method
+            signature ``(filename, pieces_completed, pieces_total)``.
+            Useful for reporting progress if dottorrent is used in a
+            GUI/threaded context, and if torrent generation needs to be cancelled.
+            The callable's return value should evaluate to ``True`` to trigger
+            cancellation.
+        """
+        files = []
+        single_file = os.path.isfile(self.path)
+        if single_file:
+            files.append((self.path, os.path.getsize(self.path), {}))
+        elif os.path.exists(self.path):
+            for x in os.walk(self.path):
+                for fn in x[2]:
+                    if any(fnmatch.fnmatch(fn, ext) for ext in self.exclude):
+                        continue
+                    fpath = os.path.normpath(os.path.join(x[0], fn))
+                    fsize = os.path.getsize(fpath)
+                    if fsize and not is_hidden_file(fpath):
+                        files.append((fpath, fsize, {}))
+        else:
+            raise exceptions.InvalidInputException
+        total_size = sum([x[1] for x in files])
+        if not (len(files) and total_size):
+            raise exceptions.EmptyInputException
+        # set piece size if not already set
+        if self.piece_size is None:
+            self.piece_size = self.get_info()[2]
+        if files:
+            self._pieces = bytearray()
+            i = 0
+            num_pieces = math.ceil(total_size / self.piece_size)
+            pc = 0
+            buf = bytearray()
+            while i < len(files):
+                fe = files[i]
+                f = open(fe[0], 'rb')
+                if self.include_md5:
+                    md5_hasher = md5()
+                else:
+                    md5_hasher = None
+                for chunk in iter(lambda: f.read(self.piece_size), b''):
+                    buf += chunk
+                    if len(buf) >= self.piece_size \
+                            or i == len(files)-1:
+                        piece = buf[:self.piece_size]
+                        self._pieces += sha1(piece).digest()
+                        del buf[:self.piece_size]
+                        pc += 1
+                        if callback:
+                            cancel = callback(fe[0], pc, num_pieces)
+                            if cancel:
+                                f.close()
+                                return False
+                    if self.include_md5:
+                        md5_hasher.update(chunk)
+                if self.include_md5:
+                    fe[2]['md5sum'] = md5_hasher.hexdigest()
+                f.close()
+                i += 1
+            # Add pieces from any remaining data
+            while len(buf):
+                piece = buf[:self.piece_size]
+                self._pieces += sha1(piece).digest()
+                del buf[:self.piece_size]
+                pc += 1
+                if callback:
+                    cancel = callback(fe[0], pc, num_pieces)
+                    if cancel:
+                        return False
+
+        # Create the torrent data structure
+        data = OrderedDict()
+        if len(self.trackers) > 0:
+            data['announce'] = self.trackers[0].encode()
+            if len(self.trackers) > 1:
+                data['announce-list'] = [[x.encode()] for x in self.trackers]
+        if self.comment:
+            data['comment'] = self.comment.encode()
+        if self.created_by:
+            data['created by'] = self.created_by.encode()
+        else:
+            data['created by'] = DEFAULT_CREATOR.encode()
+        if self.creation_date:
+            data['creation date'] = int(self.creation_date.timestamp())
+        if self.web_seeds:
+            data['url-list'] = [x.encode() for x in self.web_seeds]
+        data['info'] = OrderedDict()
+        if single_file:
+            data['info']['length'] = files[0][1]
+            if self.include_md5:
+                data['info']['md5sum'] = files[0][2]['md5sum']
+            data['info']['name'] = files[0][0].split(os.sep)[-1].encode()
+        else:
+            data['info']['files'] = []
+            path_sp = self.path.split(os.sep)
+            for x in files:
+                fx = OrderedDict()
+                fx['length'] = x[1]
+                if self.include_md5:
+                    fx['md5sum'] = x[2]['md5sum']
+                fx['path'] = [y.encode()
+                              for y in x[0].split(os.sep)[len(path_sp):]]
+                data['info']['files'].append(fx)
+            if (self.name!=""):
+                data['info']['name'] = self.name.encode()
+            else:
+                data['info']['name'] = path_sp[-1].encode()
+        data['info']['pieces'] = bytes(self._pieces)
+        data['info']['piece length'] = self.piece_size
+        data['info']['private'] = int(self.private)
+        if self.source:
+            data['info']['source'] = self.source.encode()
+
+        self._data = data
+        return True
+
+    @property
+    def data(self):
+        """
+        Returns the data dictionary for the torrent.
+
+        .. note:: ``generate()`` must be called first.
+        """
+    
+        if self._data:
+            return self._data
+        else:
+            raise exceptions.TorrentNotGeneratedException
+
+    @property
+    def info_hash_base32(self):
+        """
+        Returns the base32 info hash of the torrent. Useful for generating
+        magnet links.
+
+        .. note:: ``generate()`` must be called first.
+        """
+        if getattr(self, '_data', None):
+            return b32encode(sha1(bencode(self._data['info'])).digest())
+        else:
+            raise exceptions.TorrentNotGeneratedException
+
+    @property
+    def info_hash(self):
+        """
+        :return: The SHA-1 info hash of the torrent. Useful for generating
+            magnet links.
+
+        .. note:: ``generate()`` must be called first.
+        """
+        if getattr(self, '_data', None):
+            return sha1(bencode(self._data['info'])).hexdigest()
+        else:
+            raise exceptions.TorrentNotGeneratedException
+
+    def dump(self):
+        """
+        :return: The bencoded torrent data as a byte string.
+
+        .. note:: ``generate()`` must be called first.
+        """
+        if getattr(self, '_data', None):
+
+            return bencode(self._data)
+        else:
+            raise exceptions.TorrentNotGeneratedException
+
+    def save(self, fp):
+        """
+        Saves the torrent to ``fp``, a file(-like) object
+        opened in binary writing (``wb``) mode.
+
+        .. note:: ``generate()`` must be called first.
+        """
+        fp.write(self.dump())
 
 class DottorrentGUI(Ui_MainWindow):
 
@@ -126,7 +618,6 @@ class DottorrentGUI(Ui_MainWindow):
         self.fileRadioButton.toggled.connect(self.inputModeToggle)
         self.fileRadioButton.setChecked(True)
         self.directoryRadioButton.toggled.connect(self.inputModeToggle)
-
         self.browseButton.clicked.connect(self.browseInput)
         self.batchModeCheckBox.stateChanged.connect(self.batchModeChanged)
 
@@ -266,14 +757,42 @@ class DottorrentGUI(Ui_MainWindow):
         if self.inputMode == 'file':
             qfd.setWindowTitle('Select file')
             qfd.setFileMode(QtWidgets.QFileDialog.ExistingFile)
+            qfd.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
+            file_view = qfd.findChild(QtWidgets.QListView, 'listView')
+            if file_view:
+                file_view.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+            f_tree_view = qfd.findChild(QtWidgets.QTreeView)
+            if f_tree_view:
+                f_tree_view.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+
+            if qfd.exec(): 
+                str1 = ""
+                for ele in  qfd.selectedFiles():
+                    str1 += ele + ";"
+                self.inputEdit.setText(str1)
+                self.last_input_dir = os.path.split(qfd.selectedFiles()[0])[0]
+                self.initializeTorrent()
         else:
-            qfd.setWindowTitle('Select directory')
-            qfd.setFileMode(QtWidgets.QFileDialog.Directory)
-        if qfd.exec_():
-            fn = qfd.selectedFiles()[0]
-            self.inputEdit.setText(fn)
-            self.last_input_dir = os.path.split(fn)[0]
-            self.initializeTorrent()
+            #qfd.setWindowTitle('Select directory')
+            # qfd.setFileMode(QtWidgets.QFileDialog.Directory)
+            qfd.setFileMode(QtWidgets.QFileDialog.DirectoryOnly)
+            qfd.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
+            file_view = qfd.findChild(QtWidgets.QListView, 'listView')
+
+            # to make it possible to select multiple directories:
+            if file_view:
+                file_view.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+            f_tree_view = qfd.findChild(QtWidgets.QTreeView)
+            if f_tree_view:
+                f_tree_view.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+
+            if qfd.exec(): 
+                str1 = ""
+                for ele in  qfd.selectedFiles():
+                    str1 += ele + ";"
+                self.inputEdit.setText(str1)
+                self.last_input_dir = os.path.split(qfd.selectedFiles()[0])[0]
+                self.initializeTorrent()
 
     def injectInputPath(self, path):
         if os.path.exists(path):
@@ -321,7 +840,7 @@ class DottorrentGUI(Ui_MainWindow):
                 self.pieceCountLabel.show()
 
     def initializeTorrent(self):
-        self.torrent = dottorrent.Torrent(self.inputEdit.text())
+        self.torrent = Torrent("",self.inputEdit.text().split(";")[0])
         try:
             t_info = self.torrent.get_info()
         except Exception as e:
@@ -384,17 +903,18 @@ class DottorrentGUI(Ui_MainWindow):
         self.torrent.comment = self.commentEdit.text() or None
         self.torrent.source = self.sourceEdit.text() or None
         self.torrent.include_md5 = self.md5CheckBox.isChecked()
-        if self.inputMode == 'directory' and self.batchModeCheckBox.isChecked():
+        self.torrent.batchModeCheckBox = self.batchModeCheckBox.isChecked()
+        if self.inputMode == 'directory':
             self.createTorrentBatch()
         else:
             self.createTorrent()
 
     def createTorrent(self):
-        if os.path.isfile(self.inputEdit.text()):
+        if os.path.isfile(self.inputEdit.text().split(";")[0]):
             save_fn = os.path.splitext(
-                os.path.split(self.inputEdit.text())[1])[0] + '.torrent'
+                os.path.split(self.inputEdit.text().split(";")[0])[1])[0] + '.torrent'
         else:
-            save_fn = self.inputEdit.text().split(os.sep)[-1] + '.torrent'
+            save_fn = self.inputEdit.text().split(";")[0].split(os.sep)[-1] + '.torrent'
         if self.last_output_dir and os.path.exists(self.last_output_dir):
             save_fn = os.path.join(self.last_output_dir, save_fn)
         fn = QtWidgets.QFileDialog.getSaveFileName(
@@ -404,7 +924,8 @@ class DottorrentGUI(Ui_MainWindow):
             self.last_output_dir = os.path.split(fn)[0]
             self.creation_thread = CreateTorrentQThread(
                 self.torrent,
-                fn)
+                fn,                
+                path=self.inputEdit.text())
             self.creation_thread.started.connect(
                 self.creation_started)
             self.creation_thread.progress_update.connect(
@@ -432,6 +953,7 @@ class DottorrentGUI(Ui_MainWindow):
                 source=self.sourceEdit.text(),
                 comment=self.commentEdit.text(),
                 include_md5=self.md5CheckBox.isChecked(),
+                batchModeCheckBox=self.batchModeCheckBox.isChecked()
             )
             self.creation_thread.started.connect(
                 self.creation_started)
